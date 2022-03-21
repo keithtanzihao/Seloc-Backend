@@ -84,7 +84,9 @@ async function main() {
 
   app.get("/articles", async function (req, res) {
     try {
+      console.log("checkpoint 1");
       const db = mongoUtil.getDB();
+      console.log("checkpoint 2");
       let articleArrays = await db.collection(ARTICLES).find().toArray();
       res.json({
         articles: articleArrays,
