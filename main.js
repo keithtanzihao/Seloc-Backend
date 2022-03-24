@@ -6,7 +6,7 @@ const express = require("express");
 const cors = require("cors");
 const mongodb = require("mongodb");
 const mongoUtil = require("./mongoUtil");
-const { ObjectID } = require("bson");
+const bcrypt = require('bcrypt');
 
 const PORT_NUMBER = process.env.PORT || 3000;
 const app = express();
@@ -49,22 +49,6 @@ async function main() {
 
       let db = mongoUtil.getDB();
       
-      // Comment out later
-      function commetingOut() {
-        // await db.collection(ARTICLES).insertOne({
-        //   "title": title,
-        //   "summary": summary,
-        //   "description": description,
-        //   "create_date": createDate,
-        //   "last_updated": createDate,
-        //   "image": image,
-        //   "avg_mood_score": 0,
-        //   "mood_reviews": reviewsArray,
-        //   "topic_technique": techniqueArray,
-        //   "wellbeing_pain_pt" : painpointArray
-        // })
-      }
-      
       await db.collection(ARTICLES).insertOne({
         ...req.body,
         "create_date": createDate,
@@ -75,7 +59,6 @@ async function main() {
         "wellbeing_pain_pt" : painpointArray
       })
       res.redirect('/articles');
-
 
     } catch (error) {
       console.log(error);
@@ -289,6 +272,16 @@ async function main() {
     } catch(error) {
       console.log(error);
     }
+  })
+
+  //  ---------------------- SIGNUP ----------------------
+  app.post("/signup/", async function(req, res) {
+    const currUser = await mongoUtil.getDB().collection(USERS).findOne({
+      "email": req.body.email
+    })
+    res.json({
+      'Find user': currUser
+    })
   })
 }
 
