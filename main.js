@@ -181,11 +181,11 @@ async function main() {
 
   // filter technique function
   async function buildTechniqueQuery(reqBody, isSearch = false) {
-    let { searchQuery, category, painPoints } = reqBody;
-  
+    let { searchQuery, category, painpoints } = reqBody;
+
     let queryOrArray = [];
     let query = {};
-    let regex = new RegExp(searchQuery, "i"); 
+    let regex = new RegExp(searchQuery, "i");
 
     if (isSearch) {
       if (searchQuery) {
@@ -199,7 +199,7 @@ async function main() {
     }
 
     if (category) query.category = { $all: [...category] }
-    if (painPoints) query.painpoints = { $all: [...painPoints] }
+    if (painpoints) query.painpoints = { $all: [...painpoints] }
 
     console.log(util.inspect(query, { showHidden: false, depth: null, colors: true }));
 
@@ -221,7 +221,7 @@ async function main() {
     const techniqueSearchSchema = joi.object({
       searchQuery: joi.string(),
       category: joi.array(),
-      painPoints: joi.array(),
+      painpoints: joi.array(),
     }).required();
 
     const { error } = techniqueSearchSchema.validate(req.body);
@@ -273,57 +273,59 @@ async function main() {
 
 
 
+  // Route to modify an existing technique
+  app.put("/technique/:id", async function (req, res) {
+    // techniques put request validation
+    const techniqueSchema = joi
+      .object({
+        title: joi.string().required(),
+        category: joi.array().min(1).required(),
+        benefits: joi.array().min(1).required(),
+        instructions: joi.array().min(1).required(),
+        painpoints: joi.array().min(1).required(),
+      })
+      .required();
+    const { error } = techniqueSchema.validate(req.body);
+    if (error) throw new mongoErrors(error, 400);
 
-
-  app.put("/techniques/:id", async function (req, res) {
-    try {
-      await mongoUtil
-        .getDB()
-        .collection(TECHNIQUES)
-        .updateOne(
-          {
-            _id: mongodb.ObjectId(req.params.id),
-          },
-          {
-            $set: {
-              benefits: req.body.benefits,
-              name: req.body.name,
-              category: req.body.category,
-              instructions: req.body.instructions,
-            },
-          }
-        );
-      res.status(200);
-      res.json({
-        message: `This is the updated body: ${req.body}`,
+    await mongoUtil
+      .getDB()
+      .collection(TECHNIQUES)
+      .updateOne({
+        _id: mongodb.ObjectId(req.params.id)
+      }, {
+        $set: { ...req.body }
       });
-    } catch (error) {
-      console.log(error);
-    }
-  });
-
-  app.delete("/techniques/:id", async function (req, res) {
-    try {
-      await mongoUtil
-        .getDB()
-        .collection(TECHNIQUES)
-        .deleteOne({
-          _id: mongodb.ObjectId(req.params.id),
-        });
-      res.status(200);
-      res.json({
-        message: `This is the deleted body: ${req.body}`,
-      });
-    } catch (error) {
-      console.log(error);
-    }
+    responseMessage(200, res, req.body);
   });
 
 
 
+  app.delete("/technique/:id", async function (req, res) {
+    // techniques delete request validation
+    console.log(req.params.id, typeof req.params.id);
+    const techniqueSchema = joi
+      .object({
+        id: joi.string().length(24).required(),
+      })
+      .required();
+    const { error } = techniqueSchema.validate(req.params);
+    if (error) throw new mongoErrors(error, 400);
+
+    await mongoUtil
+      .getDB()
+      .collection(TECHNIQUES)
+      .deleteOne({
+        _id: mongodb.ObjectId(req.params.id),
+      });
+    responseMessage(200, res, req.params);
+  });
 
 
-  //  ---------------------- LOGIN ----------------------
+
+
+
+  //  -------------------------------------------- LOGIN --------------------------------------------
   app.post("/login", async function (req, res) {
     // login post request validation
     const loginSchema = joi
@@ -349,7 +351,7 @@ async function main() {
     });
   });
 
-  //  ---------------------- SIGNUP ----------------------
+  //  -------------------------------------------- SIGNUP --------------------------------------------
   app.post("/signup", async function (req, res) {
     // signup post request validation
     const signupSchema = joi
@@ -385,7 +387,7 @@ async function main() {
     });
   });
 
-  // ---------------------- USER EDIT ----------------------
+  //  -------------------------------------------- USER EDIT --------------------------------------------
   app.put("/users/:id", async function (req, res) {
     let { firstName, lastName, email, username, password, profileImage } =
       req.body;
@@ -425,7 +427,7 @@ async function main() {
     });
   });
 
-  // ---------------------- USER DELETE ----------------------
+  //  -------------------------------------------- USER DELETE --------------------------------------------
   app.delete("/users/:id", async function (req, res) {
     await mongoUtil
       .getDB()
@@ -440,13 +442,6 @@ async function main() {
   });
 }
 
-// ---------------------- For login sessions ----------------------
-// app.get("/secret", (req, res)=> {
-//   if (!req.session.email) {
-//     console.log("GG WP");
-//   }
-//   res.send("This is a secret");
-// })
 
 main();
 
@@ -454,12 +449,24 @@ app.listen(PORT_NUMBER, function () {
   console.log(`server has started at port ${PORT_NUMBER}`);
 });
 
+
+
+
 /*
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-THINGS TO DO YOU PEPEG
+THINGS TO DO LATER (KIV) YOU PEPEG
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-1) KIV sessions and auth for now
-2) Finish up all validations for express
+1) User auth / authentication
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+THINGS RECENTLY FINISHED KEKL
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+1) Newly implemented technique routes
+    - Search is completed (Frontend)
+    - Category, painpoints filter completed (Need to merge with search frontend)
 
 */
