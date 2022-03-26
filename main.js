@@ -181,44 +181,27 @@ async function main() {
 
   // filter technique function
   async function buildTechniqueQuery(reqBody, isSearch = false) {
-    let { _id, title, category, benefits, instructions, painpoints } = reqBody;
-    let queryArray = []
-    let query = isSearch ? { $or: queryArray } : {};
+    let { searchQuery, category, painPoints } = reqBody;
+  
+    let queryOrArray = [];
+    let query = {};
+    let regex = new RegExp(searchQuery, "i"); 
 
-    /**
-     * New Plausible fields:
-     * 1) array.location (stores name of location 4square)
-     * 2) painpoints
-     * 3) _id ?
-     *
-     * Filtering Methods:
-     * 1) text
-     * 2) dropdown || checkboxes
-     * */
     if (isSearch) {
-      if (title) {
-        queryArray.push({ title: { $regex: title, $options: "i" } });
+      if (searchQuery) {
+        query = { $or: queryOrArray }
+        queryOrArray.push({ title: { $regex: searchQuery, $options: "i" } });
+        queryOrArray.push({ category: { $in: [regex] } })
+        queryOrArray.push({ benefits: { $in: [regex] } })
+        queryOrArray.push({ instructions: { $in: [regex] } })
+        queryOrArray.push({ painpoints: { $in: [regex] } })
       }
-      if (category) {
-        queryArray.push({ category: { $regex: category, $options: "i" } });
-      }
-      // if (benefits) {
-      //   queryArray.push({ benefits: { $regex: benefits, $options: "i" } });
-      // }
-      // if (instructions) {
-      //   queryArray.push({ instructions: { $regex: instructions, $options: "i" } });
-      // }
-      if (painpoints) {
-        queryArray.push({ painpoints: { $in: [painpoints] } });
-      }
-    } else {
-      if (title) query.title = { $regex: title, $options: "i" };
-      if (category) query.category = { $regex: category, $options: "i" };
-      if (benefits) query.benefits = { $regex: benefits, $options: "i" };
-      if (instructions) query.instructions = { $regex: instructions, $options: "i" };
-      if (painpoints) query.painpoints = { $in: [painpoints] };
     }
-    console.log(util.inspect(query, {showHidden: false, depth: null, colors: true}));
+
+    if (category) query.category = { $all: [...category] }
+    if (painPoints) query.painpoints = { $all: [...painPoints] }
+
+    console.log(util.inspect(query, { showHidden: false, depth: null, colors: true }));
 
     // Need to place await in front of buildTechniqueQuery you pepeg
     return mongoUtil
@@ -231,35 +214,24 @@ async function main() {
 
   // For technique search bar
   app.post("/techniques/search", async function (req, res) {
-    // Fields need not be required
-    const techniqueSearchSchema = joi
-      .object({
-        title: joi.string(),
-        category: joi.string(),
-        benefits: joi.string(),
-        instructions: joi.string(),
-        painpoints: joi.string(),
-      })
-      .required();
 
     console.log(req.body);
+
+    // Fields need not be required
+    const techniqueSearchSchema = joi.object({
+      searchQuery: joi.string(),
+      category: joi.array(),
+      painPoints: joi.array(),
+    }).required();
+
     const { error } = techniqueSearchSchema.validate(req.body);
     if (error) throw new mongoErrors(error, 400);
 
     let query = await buildTechniqueQuery(req.body, true);
+    console.log("----------query----------");
     console.log(query);
     responseMessage(200, res, query);
   });
-
-
-
-  // For technique filter options
-  app.post("/techniques/filter", async function (req, res) {
-    const techniqueFilterSchema = joi.object({
-      category: joi.array(),
-      painpoints: joi.array(),
-    })
-  })
 
 
 
@@ -275,25 +247,16 @@ async function main() {
 
 
 
-
-
-
-
-
-
-
-
-
   // Generic post request to add a new technique to DB
   app.post("/technique", async function (req, res) {
     // techniques post request validation
     const techniqueSchema = joi
       .object({
         title: joi.string().required(),
-        category: joi.string().required(),
-        benefits: joi.string().required(),
-        instructions: joi.string().required(),
-        painpoints: joi.array().required(),
+        category: joi.array().min(1).required(),
+        benefits: joi.array().min(1).required(),
+        instructions: joi.array().min(1).required(),
+        painpoints: joi.array().min(1).required(),
       })
       .required();
     const { error } = techniqueSchema.validate(req.body);
@@ -355,6 +318,10 @@ async function main() {
       console.log(error);
     }
   });
+
+
+
+
 
   //  ---------------------- LOGIN ----------------------
   app.post("/login", async function (req, res) {
