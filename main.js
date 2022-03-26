@@ -2,103 +2,136 @@ if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
 }
 const express = require("express");
-
 const cors = require("cors");
 const mongodb = require("mongodb");
-const mongoUtil = require("./mongoUtil");
-const bcrypt = require('bcrypt');
+const bcrypt = require("bcrypt");
+const expressSession = require("express-session");
+const joi = require("joi");
+const passport = require("passport");
+const passportLocal = require("passport-local");
 
-const PORT_NUMBER = process.env.PORT || 3000;
+// Testing purposes
+const util = require("util");
+
+const mongoUtil = require("./mongoUtil");
+const mongoErrors = require("./mongoErrors");
+
+const PORT_NUMBER = process.env.PORT || 3001;
 const app = express();
 
 app.use(express.json());
 app.use(cors());
 
+// ---------------------- For login sessions ----------------------
+// app.use(expressSession({ secret: "letsTalk" }));
+
 const ARTICLES = "articles";
-const TECHNIQUES = "techniques"
-const USERS = "users"
-const REVIEWS = "reviews"
+const TECHNIQUES = "techniques";
+const USERS = "users";
+const REVIEWS = "reviews";
 const mongoURL = process.env.MONGO_URL;
+
+const REGEX = {
+  // Need to change url regex later copied from somewhere
+  urls: new RegExp(
+    /^[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)$/
+  ),
+  email: new RegExp(
+    /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+  ),
+};
+
+/**
+ * NOTES:
+ * 1) Validation currently will be kept at a bare minimum
+ */
 
 async function main() {
   await mongoUtil.connectDB(process.env.MONGO_URL, "LetsTalk");
 
-  // ---------------------- SANITIZING ---------------------- 
-  app.get("/", function(req, res) {
+  //  -------------------------------------------- HELPER FUNCTIONS --------------------------------------------
+  function responseMessage(statusCode, res, reqBody) {
+    res.status(statusCode);
+    res.json(reqBody);
+  }
+
+  // ---------------------- SANITIZING ----------------------
+  app.get("/", function (req, res) {
     res.send("SERVER IS RUNNING");
-  })
 
-  //  ---------------------- Articles ---------------------- 
+    /**
+     * Filtering technique is working
+     */
+
+    buildTechniqueQuery({
+      // title: "Swimming",
+      // category: "Exercise",
+      // benefits: "Helps with losing weight and feeling better overall",
+      // instructions: "5 laps of breaststroke",
+      // painpoints: ["Lifestyle", "Focus", "Physical Health"]
+      painpoints: ["Focus"],
+    }, true);
+  });
+
+  //  ---------------------- Articles ----------------------
   app.post("/articles", async function (req, res) {
-    try {
-      let { 
-        title, 
-        summary, 
-        description, 
-        create_date,
-        image, 
-        techniques,
-        painpoints
+    let unDeclaredFields = {
+      createDate: new Date(),
+      lastUpdated: new Date(),
+      avgScore: 0,
+      reviewsList: [],
+    };
 
-      } = req.body;
-
-      let createDate = new Date(create_date);
-      let reviewsArray = [];
-      let techniqueArray = techniques;
-      let painpointArray = painpoints;
-
-      let db = mongoUtil.getDB();
-      
-      await db.collection(ARTICLES).insertOne({
-        ...req.body,
-        "create_date": createDate,
-        "last_updated": createDate,
-        "avg_mood_score": 0,
-        "mood_reviews": reviewsArray,
-        "topic_technique": techniqueArray,
-        "wellbeing_pain_pt" : painpointArray
+    // signup post request validation
+    const articlesSchema = joi
+      .object({
+        title: joi.string().alphanum().required(),
+        summary: joi.string().required(),
+        description: joi.string().required(),
+        image: joi.string().pattern(REGEX.urls),
+        techniqueList: joi.array(),
       })
-      res.redirect('/articles');
+      .required();
+    const { error } = articlesSchema.validate(req.body);
 
-    } catch (error) {
-      console.log(error);
-    }
+    if (error) throw new mongoErrors(error, 400);
+
+    await mongoUtil
+      .getDB()
+      .collection(ARTICLES)
+      .insertOne({
+        ...req.body,
+        ...unDeclaredFields,
+      });
+    res.json({
+      "Articles post": { ...req.body, ...unDeclaredFields },
+    });
   });
 
   app.get("/articles", async function (req, res) {
-    try {
-      console.log("checkpoint 1");
-      const db = mongoUtil.getDB();
-      console.log("checkpoint 2");
-      let articleArrays = await db.collection(ARTICLES).find().toArray();
-      res.json({
-        articles: articleArrays,
-      });
-
-      // console.log(articleArrays);
-
-    } catch (error) {
-      res.status(500);
-      res.json({
-        message: "Internal Server Error, Please Contact Admin.",
-      });
-      console.log(e);
-    }
+    let articleArrays = await mongoUtil
+      .getDB()
+      .collection(ARTICLES)
+      .find()
+      .toArray();
+    res.json({
+      articles: articleArrays,
+    });
   });
 
-  app.put("/articles/:id", async function(req, res) {
+  app.put("/articles/:id", async function (req, res) {
     // Might need to add a try catch here
     try {
-      let { 
-        title, 
-        summary, 
-        description, 
+      let {
+        title,
+        summary,
+        description,
         create_date,
-        image, 
+        image,
         techniques,
-        painpoints
+        painpoints,
       } = req.body;
-  
+
       // Need to change this to alway be automatically generated
       let updatedDate = new Date(create_date);
 
@@ -108,182 +141,345 @@ async function main() {
       let techniqueArray = techniques;
       let painpointArray = painpoints;
 
-      let result = await db.collection(ARTICLES).updateOne({
-        "_id": mongodb.ObjectId(req.params.id)
-      },{
-        "$set": {
-          ...req.body,
-          "last_updated": updatedDate,
-          "topic_technique": techniqueArray,
-          "wellbeing_pain_pt" : painpointArray
+      let result = await db.collection(ARTICLES).updateOne(
+        {
+          _id: mongodb.ObjectId(req.params.id),
+        },
+        {
+          $set: {
+            ...req.body,
+            last_updated: updatedDate,
+            topic_technique: techniqueArray,
+            wellbeing_pain_pt: painpointArray,
+          },
         }
-      });
+      );
       console.log(result);
       res.status(200);
       res.json({
-        "message": "Result acheived",
+        message: "Result acheived",
       });
-    } catch(error) {
+    } catch (error) {
       console.log(error);
     }
-  })
+  });
 
-  app.delete("/articles/:id", async function(req, res) {
-    await mongoUtil.getDB().collection(ARTICLES).deleteOne({
-      "_id": mongodb.ObjectId(req.params.id)
-    })
+  app.delete("/articles/:id", async function (req, res) {
+    await mongoUtil
+      .getDB()
+      .collection(ARTICLES)
+      .deleteOne({
+        _id: mongodb.ObjectId(req.params.id),
+      });
     res.status(200);
     res.json({
-      "message": "The document has been delete"
+      message: "The document has been delete",
+    });
+  });
+
+  //  -------------------------------------------- TECHNIQUES --------------------------------------------
+
+  // filter technique function
+  async function buildTechniqueQuery(reqBody, isSearch = false) {
+    let { _id, title, category, benefits, instructions, painpoints } = reqBody;
+    let queryArray = []
+    let query = isSearch ? { $or: queryArray } : {};
+
+    /**
+     * New Plausible fields:
+     * 1) array.location (stores name of location 4square)
+     * 2) painpoints
+     * 3) _id ?
+     *
+     * Filtering Methods:
+     * 1) text
+     * 2) dropdown || checkboxes
+     * */
+    if (isSearch) {
+      if (title) {
+        queryArray.push({ title: { $regex: title, $options: "i" } });
+      }
+      if (category) {
+        queryArray.push({ category: { $regex: category, $options: "i" } });
+      }
+      // if (benefits) {
+      //   queryArray.push({ benefits: { $regex: benefits, $options: "i" } });
+      // }
+      // if (instructions) {
+      //   queryArray.push({ instructions: { $regex: instructions, $options: "i" } });
+      // }
+      if (painpoints) {
+        queryArray.push({ painpoints: { $in: [painpoints] } });
+      }
+    } else {
+      if (title) query.title = { $regex: title, $options: "i" };
+      if (category) query.category = { $regex: category, $options: "i" };
+      if (benefits) query.benefits = { $regex: benefits, $options: "i" };
+      if (instructions) query.instructions = { $regex: instructions, $options: "i" };
+      if (painpoints) query.painpoints = { $in: [painpoints] };
+    }
+    console.log(util.inspect(query, {showHidden: false, depth: null, colors: true}));
+
+    // Need to place await in front of buildTechniqueQuery you pepeg
+    return mongoUtil
+      .getDB()
+      .collection(TECHNIQUES)
+      .find(query, {})
+      .toArray();
+  }
+
+
+  // For technique search bar
+  app.post("/techniques/search", async function (req, res) {
+    // Fields need not be required
+    const techniqueSearchSchema = joi
+      .object({
+        title: joi.string(),
+        category: joi.string(),
+        benefits: joi.string(),
+        instructions: joi.string(),
+        painpoints: joi.string(),
+      })
+      .required();
+
+    console.log(req.body);
+    const { error } = techniqueSearchSchema.validate(req.body);
+    if (error) throw new mongoErrors(error, 400);
+
+    let query = await buildTechniqueQuery(req.body, true);
+    console.log(query);
+    responseMessage(200, res, query);
+  });
+
+
+
+  // For technique filter options
+  app.post("/techniques/filter", async function (req, res) {
+    const techniqueFilterSchema = joi.object({
+      category: joi.array(),
+      painpoints: joi.array(),
     })
   })
 
-  //  ---------------------- Techniques ---------------------- 
-  app.post("/techniques", async function(req, res) {
-    try {
-      await mongoUtil.getDB().collection(TECHNIQUES).insertOne({
-        ...req.body
-      })
-      res.status(200);
-      res.json({
-        'message': req.body
-      })
 
-    } catch(error) {
-      console.log(error);
-    }
-  })
 
-  app.get("/techniques", async function(req, res) {
-    try {
-      let techniqueArrays = await mongoUtil.getDB().collection(TECHNIQUES).find().toArray();
-      res.json({
-        articles: techniqueArrays,
+  // Generic get request to retrieve technique from DB
+  app.get("/techniques", async function (req, res) {
+    let techniqueArrays = await mongoUtil
+      .getDB()
+      .collection(TECHNIQUES)
+      .find()
+      .toArray();
+    responseMessage(200, res, techniqueArrays);
+  });
+
+
+
+
+
+
+
+
+
+
+
+
+  // Generic post request to add a new technique to DB
+  app.post("/technique", async function (req, res) {
+    // techniques post request validation
+    const techniqueSchema = joi
+      .object({
+        title: joi.string().required(),
+        category: joi.string().required(),
+        benefits: joi.string().required(),
+        instructions: joi.string().required(),
+        painpoints: joi.array().required(),
+      })
+      .required();
+    const { error } = techniqueSchema.validate(req.body);
+    if (error) throw new mongoErrors(error, 400);
+
+    await mongoUtil
+      .getDB()
+      .collection(TECHNIQUES)
+      .insertOne({
+        ...req.body,
       });
-    } catch(error) {
-      console.log(error);
-    }
-  })
+    responseMessage(200, res, req.body);
+  });
 
-  app.put("/techniques/:id", async function(req, res) {
+
+
+
+
+  app.put("/techniques/:id", async function (req, res) {
     try {
-      await mongoUtil.getDB().collection(TECHNIQUES).updateOne({
-        "_id": mongodb.ObjectId(req.params.id)
-      }, {
-        "$set": {
-          "benefits": req.body.benefits,
-          "name": req.body.name,
-          "category": req.body.category,
-          "instructions": req.body.instructions
-        }
-      })
+      await mongoUtil
+        .getDB()
+        .collection(TECHNIQUES)
+        .updateOne(
+          {
+            _id: mongodb.ObjectId(req.params.id),
+          },
+          {
+            $set: {
+              benefits: req.body.benefits,
+              name: req.body.name,
+              category: req.body.category,
+              instructions: req.body.instructions,
+            },
+          }
+        );
       res.status(200);
       res.json({
-        'message': `This is the updated body: ${req.body}`
-      })
-    } catch(error) {
+        message: `This is the updated body: ${req.body}`,
+      });
+    } catch (error) {
       console.log(error);
     }
-  })
+  });
 
-  app.delete("/techniques/:id", async function(req, res) {
+  app.delete("/techniques/:id", async function (req, res) {
     try {
-      await mongoUtil.getDB().collection(TECHNIQUES).deleteOne({
-        "_id": mongodb.ObjectId(req.params.id)
-      })
+      await mongoUtil
+        .getDB()
+        .collection(TECHNIQUES)
+        .deleteOne({
+          _id: mongodb.ObjectId(req.params.id),
+        });
       res.status(200);
       res.json({
-        'message': `This is the deleted body: ${req.body}`
-      })
-    } catch(error) {
+        message: `This is the deleted body: ${req.body}`,
+      });
+    } catch (error) {
       console.log(error);
     }
-  })
+  });
 
-  //  ---------------------- USERS ---------------------- 
-  app.post("/users", async function(req, res) {
-    try {
-      await mongoUtil.getDB().collection(USERS).insertOne({
-        ...req.body
+  //  ---------------------- LOGIN ----------------------
+  app.post("/login", async function (req, res) {
+    // login post request validation
+    const loginSchema = joi
+      .object({
+        email: joi.string().pattern(REGEX.email),
+        password: joi.string().min(8).required(),
       })
-      res.status(200);
-      res.json({
-        'ADDED NEW USER': req.body
-      })
-    } catch(error) {
-      console.log(error);
-    }
-  })
-  
-  app.get("/users", async function(req, res) {
-    try {
-      let userArray = await mongoUtil.getDB().collection(USERS).find().toArray();
-      res.json({
-        "users": userArray
-      })
-    } catch(error) {
-      console.log(error);
-    }
-  })
+      .required();
+    const { error } = loginSchema.validate(req.body);
 
-  app.put("/users/:id", async function(req, res) {
-    try {
-      let {
-        first_name,
-        last_name,
-        email,
-        username,
-        password,
-        profile_image
+    // if user does not exist
+    const userInfo = await mongoUtil.getDB().collection(USERS).findOne({
+      email: req.body.email,
+      password: req.body.password,
+    });
 
-      } = req.body;
+    if (error) throw new mongoErrors(error, 400);
+    if (!userInfo) throw new mongoErrors("User does not exist", 400);
 
-      await mongoUtil.getDB().collection(USERS).updateOne({
-        "_id": mongodb.ObjectId(req.params.id)
-      }, {
-        "$set": {
-          "first_name": first_name,
-          "last_name": last_name,
-          "email": email,
-          "username": username,
-          "password": password,
-          "profile_image": profile_image
-        }
-      }) 
-      res.status(200);
-      res.json({
-        "NEW USER": `This is the NEW USER ${req.body}`
-      })
-
-    } catch(error) {
-      console.log(error);
-    }
-  })
-
-  app.delete("/users/:id", async function(req, res) {
-    try {
-      await mongoUtil.getDB().collection(USERS).deleteOne({
-        "_id": mongodb.ObjectId(req.params.id)
-      })
-      res.status(200);
-      res.json({
-        'USER DELETE': `This is the deleted body: ${req.body}`
-      })
-    } catch(error) {
-      console.log(error);
-    }
-  })
+    res.status(200);
+    res.json({
+      "Login post": userInfo,
+    });
+  });
 
   //  ---------------------- SIGNUP ----------------------
-  app.post("/signup/", async function(req, res) {
-    const currUser = await mongoUtil.getDB().collection(USERS).findOne({
-      "email": req.body.email
-    })
+  app.post("/signup", async function (req, res) {
+    // signup post request validation
+    const signupSchema = joi
+      .object({
+        firstName: joi.string().alphanum().min(3).required(),
+        lastName: joi.string().alphanum().min(3).required(),
+        email: joi.string().pattern(REGEX.email),
+        password: joi.string().min(8).required(),
+        profileImage: joi.string(),
+      })
+      .required();
+    const { error } = signupSchema.validate(req.body);
+
+    // if email exist already
+    const userInfo = await mongoUtil.getDB().collection(USERS).findOne({
+      email: req.body.email,
+    });
+
+    // Throwing errors
+    if (error) throw new mongoErrors(error, 400);
+    if (userInfo) throw new mongoErrors("User exist", 400);
+
+    await mongoUtil
+      .getDB()
+      .collection(USERS)
+      .insertOne({
+        ...req.body,
+      });
+
+    res.status(200);
     res.json({
-      'Find user': currUser
-    })
-  })
+      "Signup post": req.body,
+    });
+  });
+
+  // ---------------------- USER EDIT ----------------------
+  app.put("/users/:id", async function (req, res) {
+    let { firstName, lastName, email, username, password, profileImage } =
+      req.body;
+
+    console.log("testing");
+    // signup post request validation
+    const userSchema = joi
+      .object({
+        firstName: joi.string().alphanum().min(3).required(),
+        lastName: joi.string().alphanum().min(3).required(),
+        email: joi.string().pattern(REGEX.email),
+        password: joi.string().min(8).required(),
+        profileImage: joi.string(),
+      })
+      .required();
+    const { error } = userSchema.validate(req.body);
+
+    // req.body validation testing
+    if (error) throw new mongoErrors(error, 400);
+
+    await mongoUtil
+      .getDB()
+      .collection(USERS)
+      .updateOne(
+        {
+          _id: mongodb.ObjectId(req.params.id),
+        },
+        {
+          $set: {
+            ...req.body,
+          },
+        }
+      );
+    res.status(200);
+    res.json({
+      "User put": `This is the NEW USER ${req.body}`,
+    });
+  });
+
+  // ---------------------- USER DELETE ----------------------
+  app.delete("/users/:id", async function (req, res) {
+    await mongoUtil
+      .getDB()
+      .collection(USERS)
+      .deleteOne({
+        _id: mongodb.ObjectId(req.params.id),
+      });
+    res.status(200);
+    res.json({
+      "User delete": `This is the deleted body: ${req.body}`,
+    });
+  });
 }
+
+// ---------------------- For login sessions ----------------------
+// app.get("/secret", (req, res)=> {
+//   if (!req.session.email) {
+//     console.log("GG WP");
+//   }
+//   res.send("This is a secret");
+// })
 
 main();
 
@@ -291,5 +487,12 @@ app.listen(PORT_NUMBER, function () {
   console.log(`server has started at port ${PORT_NUMBER}`);
 });
 
+/*
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+THINGS TO DO YOU PEPEG
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+1) KIV sessions and auth for now
+2) Finish up all validations for express
 
+*/
