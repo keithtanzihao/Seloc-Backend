@@ -3,7 +3,11 @@ if (process.env.NODE_ENV !== "production") {
 }
 const express = require("express");
 const cors = require("cors");
+
+// Need to merge tgt
 const mongodb = require("mongodb");
+const { project } = require("mongodb");
+
 const bcrypt = require("bcrypt");
 const expressSession = require("express-session");
 const joi = require("joi");
@@ -55,6 +59,8 @@ async function main() {
     res.json(reqBody);
   }
 
+
+
   // ---------------------- SANITIZING ----------------------
   app.get("/", function (req, res) {
     res.send("SERVER IS RUNNING");
@@ -72,6 +78,8 @@ async function main() {
       painpoints: ["Focus"],
     }, true);
   });
+
+
 
   //  ---------------------- Articles ----------------------
   app.post("/articles", async function (req, res) {
@@ -177,6 +185,11 @@ async function main() {
     });
   });
 
+
+
+
+
+
   //  -------------------------------------------- TECHNIQUES --------------------------------------------
 
   // filter technique function
@@ -196,7 +209,7 @@ async function main() {
         queryOrArray.push({ instructions: { $in: [regex] } })
         queryOrArray.push({ painpoints: { $in: [regex] } })
       }
-    }
+    }t
 
     if (category) query.category = { $all: [...category] }
     if (painpoints) query.painpoints = { $all: [...painpoints] }
@@ -215,7 +228,7 @@ async function main() {
   // For technique search bar
   app.post("/techniques/search", async function (req, res) {
 
-    console.log(req.body);
+    // console.log(req.body);
 
     // Fields need not be required
     const techniqueSearchSchema = joi.object({
@@ -232,6 +245,56 @@ async function main() {
     console.log(query);
     responseMessage(200, res, query);
   });
+
+
+
+  // get request to fetch all existing categories 
+  app.get("/techniques/category", async function (req, res) {
+    let categoryResponse = await mongoUtil.getDB().collection(TECHNIQUES).find().project({
+      _id: 0,
+      category: 1
+    }).toArray();
+
+    // Quadratic but who cares
+    let allCategoryTypes = [];
+    let fetchCategories = categoryResponse.map(function(obj) {
+      return obj.category;
+    })
+    for (let categoryResponse of fetchCategories) {
+      for (let categoryIndiv of categoryResponse) {
+        if (!(allCategoryTypes.includes(categoryIndiv))) {
+          allCategoryTypes.push(categoryIndiv);
+        }
+      }
+    }
+    // console.log(allCategoryTypes);
+    responseMessage(200, res, allCategoryTypes);
+  })
+
+
+
+  // get request to fetch all existing painpoints 
+  app.get("/techniques/painpoints", async function (req, res) {
+    let painPointsResponse = await mongoUtil.getDB().collection(TECHNIQUES).find().project({
+      _id: 0,
+      painpoints: 1
+    }).toArray();
+
+    // Quadratic but who cares
+    let allPainPointTypes = [];
+    let fetchPainPoints = painPointsResponse.map(function(obj) {
+      return obj.painpoints;
+    })
+    for (let painPointResponse of fetchPainPoints) {
+      for (let painPointIndiv of painPointResponse) {
+        if (!(allPainPointTypes.includes(painPointIndiv))) {
+          allPainPointTypes.push(painPointIndiv);
+        }
+      }
+    }
+    console.log(allPainPointTypes);
+    responseMessage(200, res, allPainPointTypes);
+  })
 
 
 
@@ -253,6 +316,7 @@ async function main() {
     const techniqueSchema = joi
       .object({
         title: joi.string().required(),
+        description: joi.string().required(),
         category: joi.array().min(1).required(),
         benefits: joi.array().min(1).required(),
         instructions: joi.array().min(1).required(),
@@ -323,8 +387,6 @@ async function main() {
 
 
 
-
-
   //  -------------------------------------------- LOGIN --------------------------------------------
   app.post("/login", async function (req, res) {
     // login post request validation
@@ -350,6 +412,8 @@ async function main() {
       "Login post": userInfo,
     });
   });
+
+
 
   //  -------------------------------------------- SIGNUP --------------------------------------------
   app.post("/signup", async function (req, res) {
@@ -386,6 +450,8 @@ async function main() {
       "Signup post": req.body,
     });
   });
+
+
 
   //  -------------------------------------------- USER EDIT --------------------------------------------
   app.put("/users/:id", async function (req, res) {
@@ -427,6 +493,8 @@ async function main() {
     });
   });
 
+
+
   //  -------------------------------------------- USER DELETE --------------------------------------------
   app.delete("/users/:id", async function (req, res) {
     await mongoUtil
@@ -440,6 +508,9 @@ async function main() {
       "User delete": `This is the deleted body: ${req.body}`,
     });
   });
+
+
+
 }
 
 
@@ -468,5 +539,7 @@ THINGS RECENTLY FINISHED KEKL
 1) Newly implemented technique routes
     - Search is completed (Frontend)
     - Category, painpoints filter completed (Need to merge with search frontend)
+
+2) 
 
 */
