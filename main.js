@@ -6,54 +6,66 @@ const cors = require("cors");
 
 // Need to merge tgt
 const mongodb = require("mongodb");
-const { project } = require("mongodb");
-
-const bcrypt = require("bcrypt");
-const expressSession = require("express-session");
-const joi = require("joi");
-const passport = require("passport");
-const passportLocal = require("passport-local");
-
-// Testing purposes
-const util = require("util");
-
+const { project, projection } = require("mongodb");
 const mongoUtil = require("./mongoUtil");
 const mongoErrors = require("./mongoErrors");
+
+const util = require("util");
+
+const joi = require("joi");
 
 const PORT_NUMBER = process.env.PORT || 3001;
 const app = express();
 
+
+
+////////////////////////////////////////////////////////////////////////////////////
+//            EXPERIMENTAL STUFF  WILL FUCK UP HERE CFM PLUS CHOP                 //
+////////////////////////////////////////////////////////////////////////////////////
+
+const bcrypt = require("bcrypt");
+const expressSession = require("express-session");
+const passport = require("passport");
+const passportLocal = require("passport-local");
+
+
+app.use(expressSession({
+  secret: "badsecret",
+  // If not commented out under developer tools/applications cookies will not exist
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false
+  }
+}))
+
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  credentials: true
+}));
 
-// ---------------------- For login sessions ----------------------
-// app.use(expressSession({ secret: "letsTalk" }));
 
-const ARTICLES = "articles";
 const TECHNIQUES = "techniques";
+const COMMENTS = "comments";
 const USERS = "users";
-const REVIEWS = "reviews";
+
 const mongoURL = process.env.MONGO_URL;
 
 const REGEX = {
   // Need to change url regex later copied from somewhere
-  urls: new RegExp(
-    /^[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)$/
-  ),
-  email: new RegExp(
-    /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
-  ),
+  urls: new RegExp(/^[(http(s)?):\/\/(www\.)?a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)$/),
+  email: new RegExp(/^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/),
 };
-
-/**
- * NOTES:
- * 1) Validation currently will be kept at a bare minimum
- */
 
 async function main() {
   await mongoUtil.connectDB(process.env.MONGO_URL, "LetsTalk");
 
-  //  -------------------------------------------- HELPER FUNCTIONS --------------------------------------------
+
+
+  // HELPER FUNCTIONS 
   function responseMessage(statusCode, res, reqBody) {
     res.status(statusCode);
     res.json(reqBody);
@@ -61,158 +73,217 @@ async function main() {
 
 
 
-  // ---------------------- SANITIZING ----------------------
+  // CHECK IF BACKEND WORKS
   app.get("/", function (req, res) {
     res.send("SERVER IS RUNNING");
-
-    /**
-     * Filtering technique is working
-     */
-
-    buildTechniqueQuery({
-      // title: "Swimming",
-      // category: "Exercise",
-      // benefits: "Helps with losing weight and feeling better overall",
-      // instructions: "5 laps of breaststroke",
-      // painpoints: ["Lifestyle", "Focus", "Physical Health"]
-      painpoints: ["Focus"],
-    }, true);
   });
 
 
 
-  //  ---------------------- Articles ----------------------
-  app.post("/articles", async function (req, res) {
-    let unDeclaredFields = {
-      createDate: new Date(),
-      lastUpdated: new Date(),
-      avgScore: 0,
-      reviewsList: [],
-    };
-
+  //  -------------------------------------------- LOGIN --------------------------------------------
+  app.post("/register", async function (req, res) {
     // signup post request validation
-    const articlesSchema = joi
+    const signupSchema = joi
       .object({
-        title: joi.string().alphanum().required(),
-        summary: joi.string().required(),
-        description: joi.string().required(),
-        image: joi.string().pattern(REGEX.urls),
-        techniqueList: joi.array(),
+        firstName: joi.string().alphanum().min(3).required(),
+        lastName: joi.string().alphanum().min(3).required(),
+        email: joi.string().pattern(REGEX.email),
+        password: joi.string().min(8).required(),
+        profileImage: joi.string().allow("")
       })
       .required();
-    const { error } = articlesSchema.validate(req.body);
+    const { error } = signupSchema.validate(req.body);
 
-    if (error) throw new mongoErrors(error, 400);
+    // if email exist already
+    // const userInfo = await mongoUtil.getDB().collection(USERS).findOne({
+      // email: req.body.email,
+    // });
+    // console.log(userInfo);
+
+    // Throwing errors
+    if (error) throw new mongoErrors(error, 400);    
+    // if (userInfo) throw new mongoErrors("User exist", 400);
+
+    // Hashing user password
+    const passwordSalt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(req.body.password, passwordSalt);
+    req.body.password = passwordHash;
 
     await mongoUtil
       .getDB()
-      .collection(ARTICLES)
+      .collection(USERS)
       .insertOne({
         ...req.body,
-        ...unDeclaredFields,
       });
-    res.json({
-      "Articles post": { ...req.body, ...unDeclaredFields },
-    });
+
+    responseMessage(200, res, req.body);
   });
 
-  app.get("/articles", async function (req, res) {
-    let articleArrays = await mongoUtil
-      .getDB()
-      .collection(ARTICLES)
-      .find()
-      .toArray();
-    res.json({
-      articles: articleArrays,
+  // Route to check if user email exist within DB
+  app.get("/register/:email", async function (req, res) {
+    const emailSchema = joi
+      .object({
+        email: joi.string()
+      })
+      .required();
+
+    const { error } = emailSchema.validate(req.params);
+    if (error) throw new mongoErrors(error, 400);
+
+    const emailInfo = await mongoUtil.getDB().collection(USERS).findOne({
+      email: req.params.email
+    }, { 
+      _id: 0,
+      email: 1 
     });
-  });
 
-  app.put("/articles/:id", async function (req, res) {
-    // Might need to add a try catch here
-    try {
-      let {
-        title,
-        summary,
-        description,
-        create_date,
-        image,
-        techniques,
-        painpoints,
-      } = req.body;
-
-      // Need to change this to alway be automatically generated
-      let updatedDate = new Date(create_date);
-
-      // console.log(req.body);
-      let db = mongoUtil.getDB();
-      let reviewsArray = [];
-      let techniqueArray = techniques;
-      let painpointArray = painpoints;
-
-      let result = await db.collection(ARTICLES).updateOne(
-        {
-          _id: mongodb.ObjectId(req.params.id),
-        },
-        {
-          $set: {
-            ...req.body,
-            last_updated: updatedDate,
-            topic_technique: techniqueArray,
-            wellbeing_pain_pt: painpointArray,
-          },
-        }
-      );
-      console.log(result);
-      res.status(200);
-      res.json({
-        message: "Result acheived",
-      });
-    } catch (error) {
-      console.log(error);
+    if (!emailInfo) {
+      console.log(req.params.email);
+      // Storing user info into session / cookie
+      expressSession.user_email = req.params.email;
     }
-  });
+    
+    responseMessage(200, res, emailInfo);
+  })
 
-  app.delete("/articles/:id", async function (req, res) {
-    await mongoUtil
-      .getDB()
-      .collection(ARTICLES)
-      .deleteOne({
-        _id: mongodb.ObjectId(req.params.id),
-      });
-    res.status(200);
-    res.json({
-      message: "The document has been delete",
+
+  // Might actually be RESTful
+  app.post("/login", async function (req, res) {
+
+    // login post request validation
+    const loginSchema = joi
+      .object({
+        email: joi.string().pattern(REGEX.email),
+        password: joi.string().min(8).required(),
+      })
+      .required();
+    const { error } = loginSchema.validate(req.body);
+
+    // if user does not exist
+    const userInfo = await mongoUtil.getDB().collection(USERS).findOne({
+      email: req.body.email,
+    }, {
+      projection: {
+        _id: 0,
+        email: 1,
+        password: 1
+      }
+    });
+
+    if (error) throw new mongoErrors(error, 400);
+    if (!userInfo) throw new mongoErrors("User does not exist", 400);
+
+    // Need to validate later
+    const isValidPassword = await bcrypt.compare(req.body.password, userInfo.password);
+
+    // Storing user info into session / cookie
+    expressSession.user_email = userInfo.email;  
+
+    responseMessage(200, res, {
+      sessionUser: userInfo.email
     });
   });
 
 
+  // Logout Route
+  app.get("/logout", function (req, res) {
+    expressSession.user_email = null;
+    res.redirect("/");
+  })
 
 
 
 
-  //  -------------------------------------------- TECHNIQUES --------------------------------------------
 
-  // filter technique function
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // TECHNIQUES
+
+  // Filter technique function
   async function buildTechniqueQuery(reqBody, isSearch = false) {
-    let { searchQuery, category, painpoints } = reqBody;
+    let { searchQuery, category, painpoints, filterOptions } = reqBody;
 
+    let queryAndArray = [];
     let queryOrArray = [];
+
     let query = {};
     let regex = new RegExp(searchQuery, "i");
 
     if (isSearch) {
-      if (searchQuery) {
-        query = { $or: queryOrArray }
-        queryOrArray.push({ title: { $regex: searchQuery, $options: "i" } });
-        queryOrArray.push({ category: { $in: [regex] } })
-        queryOrArray.push({ benefits: { $in: [regex] } })
-        queryOrArray.push({ instructions: { $in: [regex] } })
-        queryOrArray.push({ painpoints: { $in: [regex] } })
-      }
-    }t
 
-    if (category) query.category = { $all: [...category] }
-    if (painpoints) query.painpoints = { $all: [...painpoints] }
+      if (filterOptions && filterOptions.isBroadMatch) {
+        query = { $and: queryAndArray };
+        queryAndArray.push({ $or: queryOrArray });
+
+      } else {
+        query = { $or: queryOrArray };
+      }
+
+      if (searchQuery) {
+        queryOrArray.push({ title: { $regex: searchQuery, $options: "i" } });
+        queryOrArray.push({ description: { $regex: searchQuery, $options: "i" } });
+        queryOrArray.push({ 'instructions.content': { $regex: searchQuery, $options: "i" } })
+        queryOrArray.push({ 'benefits.content': { $regex: searchQuery, $options: "i" } })
+      }
+
+      if (filterOptions.difficulty && filterOptions.difficulty !== "None") {
+        if (filterOptions.isBroadMatch) {
+          queryAndArray.push({ difficulty: { $regex: filterOptions.difficulty, $options: "i" } });
+        } else {
+          queryOrArray.push({ difficulty: { $regex: filterOptions.difficulty, $options: "i" } });
+        }
+      }
+
+      // Need to zhng this asap
+      if (filterOptions.orderBy &&  filterOptions.orderBy !== "None") {
+        if (filterOptions.isBroadMatch) {
+          queryAndArray.push({ orderBy: { $regex: filterOptions.orderBy, $options: "i" } });
+        } else {
+          queryOrArray.push({ orderBy: { $regex: filterOptions.orderBy, $options: "i" } });
+        }
+      } 
+      
+      if (filterOptions.selectedCategory && filterOptions.selectedCategory.length !== 0) {
+        if (filterOptions.isBroadMatch) {
+          queryAndArray.push({ category: { $in: filterOptions.selectedCategory } });
+        } else {
+          queryOrArray.push({ category: { $in: filterOptions.selectedCategory } });
+        }
+      }
+
+      if (filterOptions.selectedPainPoints && filterOptions.selectedPainPoints.length !== 0) {
+        if (filterOptions.isBroadMatch) {
+          queryAndArray.push({ painpoints: { $in: filterOptions.selectedPainPoints } });
+        } else {
+          queryOrArray.push({ painpoints: { $in: filterOptions.selectedPainPoints } });
+        }
+      }
+    }
 
     console.log(util.inspect(query, { showHidden: false, depth: null, colors: true }));
 
@@ -224,80 +295,6 @@ async function main() {
       .toArray();
   }
 
-
-  // For technique search bar
-  app.post("/techniques/search", async function (req, res) {
-
-    // console.log(req.body);
-
-    // Fields need not be required
-    const techniqueSearchSchema = joi.object({
-      searchQuery: joi.string(),
-      category: joi.array(),
-      painpoints: joi.array(),
-    }).required();
-
-    const { error } = techniqueSearchSchema.validate(req.body);
-    if (error) throw new mongoErrors(error, 400);
-
-    let query = await buildTechniqueQuery(req.body, true);
-    console.log("----------query----------");
-    console.log(query);
-    responseMessage(200, res, query);
-  });
-
-
-
-  // get request to fetch all existing categories 
-  app.get("/techniques/category", async function (req, res) {
-    let categoryResponse = await mongoUtil.getDB().collection(TECHNIQUES).find().project({
-      _id: 0,
-      category: 1
-    }).toArray();
-
-    // Quadratic but who cares
-    let allCategoryTypes = [];
-    let fetchCategories = categoryResponse.map(function(obj) {
-      return obj.category;
-    })
-    for (let categoryResponse of fetchCategories) {
-      for (let categoryIndiv of categoryResponse) {
-        if (!(allCategoryTypes.includes(categoryIndiv))) {
-          allCategoryTypes.push(categoryIndiv);
-        }
-      }
-    }
-    // console.log(allCategoryTypes);
-    responseMessage(200, res, allCategoryTypes);
-  })
-
-
-
-  // get request to fetch all existing painpoints 
-  app.get("/techniques/painpoints", async function (req, res) {
-    let painPointsResponse = await mongoUtil.getDB().collection(TECHNIQUES).find().project({
-      _id: 0,
-      painpoints: 1
-    }).toArray();
-
-    // Quadratic but who cares
-    let allPainPointTypes = [];
-    let fetchPainPoints = painPointsResponse.map(function(obj) {
-      return obj.painpoints;
-    })
-    for (let painPointResponse of fetchPainPoints) {
-      for (let painPointIndiv of painPointResponse) {
-        if (!(allPainPointTypes.includes(painPointIndiv))) {
-          allPainPointTypes.push(painPointIndiv);
-        }
-      }
-    }
-    console.log(allPainPointTypes);
-    responseMessage(200, res, allPainPointTypes);
-  })
-
-
-
   // Generic get request to retrieve technique from DB
   app.get("/techniques", async function (req, res) {
     let techniqueArrays = await mongoUtil
@@ -305,21 +302,27 @@ async function main() {
       .collection(TECHNIQUES)
       .find()
       .toArray();
-    responseMessage(200, res, techniqueArrays);
+    responseMessage(200, res, {
+      techniqueArrays: techniqueArrays,
+      sessionUser: expressSession.user_email || ""
+    });
   });
 
-
-
   // Generic post request to add a new technique to DB
-  app.post("/technique", async function (req, res) {
+  app.post("/technique/add", async function (req, res) {
     // techniques post request validation
     const techniqueSchema = joi
       .object({
         title: joi.string().required(),
         description: joi.string().required(),
-        category: joi.array().min(1).required(),
-        benefits: joi.array().min(1).required(),
+        duration: joi.number().required(),
+        difficulty: joi.string().required(),
+        image: joi.string().required(),
+        
         instructions: joi.array().min(1).required(),
+        benefits: joi.array().min(1).required(),
+        
+        category: joi.array().min(1).required(),
         painpoints: joi.array().min(1).required(),
       })
       .required();
@@ -331,14 +334,303 @@ async function main() {
       .collection(TECHNIQUES)
       .insertOne({
         ...req.body,
+        comments: []
       });
     responseMessage(200, res, req.body);
   });
 
 
 
+
+
+  // For technique search bar
+  app.get("/techniques/search/:query/:filterOptions", async function (req, res) {
+
+    // Fields need not be required
+    const techniqueSearchSchema = joi.object({
+      searchQuery: joi.string(),
+      filterOptions: joi.object(),
+    }).required();
+
+    // Query payload
+    let queryPayload = {
+      searchQuery: req.params.query,
+      filterOptions: JSON.parse(req.params.filterOptions)
+    }
+
+    console.log(queryPayload);
+    console.log("-----------------------");
+
+    const { error } = techniqueSearchSchema.validate(queryPayload);
+    if (error) throw new mongoErrors(error, 400);
+
+    let query = await buildTechniqueQuery(queryPayload, true);
+    // console.log("----------query----------");
+    // console.log(query);
+    responseMessage(200, res, query);
+  });
+
+
+
+
+
+
+  app.get("/technique/:id", async function (req, res) {
+    let techniqueInfo = await mongoUtil.getDB().collection(TECHNIQUES).findOne({
+      _id: mongodb.ObjectId(req.params.id)
+    },{});
+
+    console.log(expressSession.user_email);
+
+    responseMessage(200, res, {
+      techniqueInfo: techniqueInfo,
+      sessionUser: expressSession.user_email || ""
+    });
+  })
+
+
+
+
+
+
+
+
+
+
+
+  //  -------------------------------------------- REMOVE LATER --------------------------------------------
+  // get request to fetch all existing categories 
+  // app.get("/techniques/category", async function (req, res) {
+  //   let categoryResponse = await mongoUtil.getDB().collection(TECHNIQUES).find().project({
+  //     _id: 0,
+  //     category: 1
+  //   }).toArray();
+
+  //   // Quadratic but who cares
+  //   let allCategoryTypes = [];
+  //   let fetchCategories = categoryResponse.map(function(obj) {
+  //     return obj.category;
+  //   })
+  //   for (let categoryResponse of fetchCategories) {
+  //     for (let categoryIndiv of categoryResponse) {
+  //       if (!(allCategoryTypes.includes(categoryIndiv))) {
+  //         allCategoryTypes.push(categoryIndiv);
+  //       }
+  //     }
+  //   }
+  //   // console.log(allCategoryTypes);
+  //   responseMessage(200, res, allCategoryTypes);
+  // })
+
+  // get request to fetch all existing painpoints 
+  // app.get("/techniques/painpoints", async function (req, res) {
+  //   let painPointsResponse = await mongoUtil.getDB().collection(TECHNIQUES).find().project({
+  //     _id: 0,
+  //     painpoints: 1
+  //   }).toArray();
+
+  //   // Quadratic but who cares
+  //   let allPainPointTypes = [];
+  //   let fetchPainPoints = painPointsResponse.map(function(obj) {
+  //     return obj.painpoints;
+  //   })
+  //   for (let painPointResponse of fetchPainPoints) {
+  //     for (let painPointIndiv of painPointResponse) {
+  //       if (!(allPainPointTypes.includes(painPointIndiv))) {
+  //         allPainPointTypes.push(painPointIndiv);
+  //       }
+  //     }
+  //   }
+  //   // console.log(allPainPointTypes);
+  //   responseMessage(200, res, allPainPointTypes);
+  // })
+  //  ------------------------------------------------------------------------------------------------------
+
+
+  
+
+  
+
+  //  -------------------------------------------- COMMENTS --------------------------------------------
+
+
+
+
+
+
+
+
+
+  
+
+  app.get("/technique/:id/comments", async function (req, res) {
+
+    let comments = await mongoUtil.getDB().collection(TECHNIQUES).find({
+      _id: mongodb.ObjectId(req.params.id)
+    }).project({
+      _id: 0,
+      comments: 1
+    }).toArray();
+
+    let listOfCommentIDs = comments[0].comments;
+    let techniqueComments = [];
+
+    for (let id of listOfCommentIDs) {
+      let indivComment = await mongoUtil.getDB().collection(COMMENTS).find({
+        _id: id
+      }).project({}).toArray();
+      techniqueComments.push(indivComment[0]);
+    }
+    responseMessage(200, res, techniqueComments);
+  })
+
+  // Add new comment (BEING USED -- techniqueDisplaly.js)
+  app.post("/technique/:id/comment/add", async function (req, res) {
+    
+    // Validate req.params.id later
+    const commentSchema = joi
+      .object({
+        comment: joi.string().min(1).required(),
+        ratingScore: joi.number().required(),
+      })
+      .required();
+    const { error } = commentSchema.validate(req.body);
+    if (error) throw new mongoErrors(error, 400);
+
+    const objectId = mongodb.ObjectId();
+    
+    await mongoUtil
+      .getDB()
+      .collection(COMMENTS)
+      .insertOne({
+        _id: objectId,
+        ...req.body,
+        user_email: expressSession.user_email || ""
+      })
+    
+    
+    
+    await mongoUtil
+      .getDB()
+      .collection(TECHNIQUES)
+      .updateOne({
+        _id: mongodb.ObjectId(req.params.id)
+      }, {
+        $push: {
+          comments: objectId
+        }
+      })
+    console.log("checkpoint 3");  
+
+    responseMessage(200, res, { 
+      ...req.body, 
+      objectId: objectId
+    });
+  })
+
+
+
+  app.put("/comment/:id", async function (req, res) {
+
+    console.log(req.body);
+    console.log("-----------------------------------------------------------------------");
+
+    const commentSchema = joi
+      .object({
+        comment: joi.string().min(1).required(),
+        ratingScore: joi.number().required(),
+      })
+      .required();
+    
+    const { error } = commentSchema.validate(req.body);
+    if (error) throw new mongoErrors(error, 400);
+
+    const objectId = mongodb.ObjectId();
+    
+    await mongoUtil.getDB().collection(COMMENTS).updateOne({
+      _id: mongodb.ObjectId(req.params.id)
+    }, {
+      $set: { 
+        ...req.body,
+        user_email: expressSession.user_email
+      }
+    })
+    
+    responseMessage(200, res, { 
+      ...req.body, 
+      user_email: expressSession.user_email
+    });
+  })
+
+
+  app.delete("/technique/:technique_id/comment/:comment_id", async function (req, res) {
+    console.log(req.params.technique_id, req.params.comment_id);
+    const techniqueSchema = joi
+      .object({
+        technique_id: joi.string().length(24).required(),
+        comment_id: joi.string().length(24).required(),
+      })
+      .required();
+
+    const { error } = techniqueSchema.validate(req.params);
+    if (error) throw new mongoErrors(error, 400);
+
+    await mongoUtil.getDB().collection(TECHNIQUES).updateOne({
+      _id: mongodb.ObjectId(req.params.technique_id)
+    }, {
+      $pull: {
+        'comments': mongodb.ObjectId(req.params.comment_id)
+      }
+    })
+
+    await mongoUtil
+      .getDB()
+      .collection(COMMENTS)
+      .deleteOne({
+        _id: mongodb.ObjectId(req.params.comment_id),
+      });
+  
+    responseMessage(200, res, req.params);
+  })
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   // Route to modify an existing technique
   app.put("/technique/:id", async function (req, res) {
+    
     // techniques put request validation
     const techniqueSchema = joi
       .object({
@@ -367,7 +659,7 @@ async function main() {
 
   app.delete("/technique/:id", async function (req, res) {
     // techniques delete request validation
-    console.log(req.params.id, typeof req.params.id);
+    
     const techniqueSchema = joi
       .object({
         id: joi.string().length(24).required(),
@@ -387,69 +679,14 @@ async function main() {
 
 
 
-  //  -------------------------------------------- LOGIN --------------------------------------------
-  app.post("/login", async function (req, res) {
-    // login post request validation
-    const loginSchema = joi
-      .object({
-        email: joi.string().pattern(REGEX.email),
-        password: joi.string().min(8).required(),
-      })
-      .required();
-    const { error } = loginSchema.validate(req.body);
-
-    // if user does not exist
-    const userInfo = await mongoUtil.getDB().collection(USERS).findOne({
-      email: req.body.email,
-      password: req.body.password,
-    });
-
-    if (error) throw new mongoErrors(error, 400);
-    if (!userInfo) throw new mongoErrors("User does not exist", 400);
-
-    res.status(200);
-    res.json({
-      "Login post": userInfo,
-    });
-  });
+  
 
 
 
-  //  -------------------------------------------- SIGNUP --------------------------------------------
-  app.post("/signup", async function (req, res) {
-    // signup post request validation
-    const signupSchema = joi
-      .object({
-        firstName: joi.string().alphanum().min(3).required(),
-        lastName: joi.string().alphanum().min(3).required(),
-        email: joi.string().pattern(REGEX.email),
-        password: joi.string().min(8).required(),
-        profileImage: joi.string(),
-      })
-      .required();
-    const { error } = signupSchema.validate(req.body);
 
-    // if email exist already
-    const userInfo = await mongoUtil.getDB().collection(USERS).findOne({
-      email: req.body.email,
-    });
 
-    // Throwing errors
-    if (error) throw new mongoErrors(error, 400);
-    if (userInfo) throw new mongoErrors("User exist", 400);
 
-    await mongoUtil
-      .getDB()
-      .collection(USERS)
-      .insertOne({
-        ...req.body,
-      });
 
-    res.status(200);
-    res.json({
-      "Signup post": req.body,
-    });
-  });
 
 
 
@@ -510,9 +747,16 @@ async function main() {
   });
 
 
-
+  // Session testing
+  app.get('/secret', (req, res) => {
+    if (expressSession.user_email) {
+      console.log(expressSession.user_email);
+      res.send("SESSION WORKING POG U");
+    } else {
+      res.redirect("/");
+    }
+  })
 }
-
 
 main();
 
@@ -523,23 +767,43 @@ app.listen(PORT_NUMBER, function () {
 
 
 
-/*
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-THINGS TO DO LATER (KIV) YOU PEPEG
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-1) User auth / authentication
 
 
+////////////////////////////////////////////////////////////////////////////////////
+//                                  ASK PAUL / FRIENDS                            //
+////////////////////////////////////////////////////////////////////////////////////
+/**
+ * 
+ * 1) /login/:email
+ * - Projection not working
+ * 
+ * 2) expressSession not req.expressSession
+ * - Why cos it works for now
+ * - 90% will fuck up later but ok for now
+ * 
+ * 
+ * 
+ */
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-THINGS RECENTLY FINISHED KEKL
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-1) Newly implemented technique routes
-    - Search is completed (Frontend)
-    - Category, painpoints filter completed (Need to merge with search frontend)
+////////////////////////////////////////////////////////////////////////////////////
+//                                  DO LATER                                      //
+////////////////////////////////////////////////////////////////////////////////////
+/**
+ * 
+ * 1) Error handling 
+ * - try catch errors so it doesnt terminate all the darn time
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ */
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
-2) 
 
-*/
