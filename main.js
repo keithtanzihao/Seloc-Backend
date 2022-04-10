@@ -9,15 +9,11 @@ const mongodb = require("mongodb");
 const { project, projection } = require("mongodb");
 const mongoUtil = require("./mongoUtil");
 const mongoErrors = require("./mongoErrors");
-
 const util = require("util");
-
 const joi = require("joi");
 
 const PORT_NUMBER = process.env.PORT || 3001;
 const app = express();
-
-
 
 ////////////////////////////////////////////////////////////////////////////////////
 //            EXPERIMENTAL STUFF  WILL FUCK UP HERE CFM PLUS CHOP                 //
@@ -51,7 +47,6 @@ app.use(cors({
 const TECHNIQUES = "techniques";
 const COMMENTS = "comments";
 const USERS = "users";
-
 const mongoURL = process.env.MONGO_URL;
 
 const REGEX = {
@@ -63,30 +58,16 @@ const REGEX = {
 async function main() {
   await mongoUtil.connectDB(process.env.MONGO_URL, "LetsTalk");
 
-
-
   // HELPER FUNCTIONS 
   function responseMessage(statusCode, res, reqBody) {
     res.status(statusCode);
     res.json(reqBody);
   }
 
-
-
   // CHECK IF BACKEND WORKS
   app.get("/", function (req, res) {
     res.send("SERVER IS RUNNING");
   });
-
-
-
-
-  /**
-   * Need to fix asap
-   * 
-   * login validation in backend
-   * do up async validation so the backend doesnt crash all the time
-   */
 
 
   // Route to check if user email exist within DB
@@ -160,19 +141,7 @@ async function main() {
     }
   });
 
-
-
-  
-
-
-
-
-
-
-
-
-
-  // Might actually be RESTful
+  // Need to double check this later------------------------------------------------------------------------------------
   app.get("/login/:email/:password", async function (req, res) {
 
     // login post request validation
@@ -205,45 +174,10 @@ async function main() {
   });
 
 
-
-
-
-
-
-  // Logout Route
+  // Logout Route (not in use) ------------------------------------------------------------------------------------
   app.get("/logout", function (req, res) {
     expressSession.user_email = null;
   })
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
   // TECHNIQUES
@@ -260,13 +194,9 @@ async function main() {
 
     if (isSearch) {
 
-      if (filterOptions && filterOptions.isBroadMatch) {
-        query = { $and: queryAndArray };
-        queryAndArray.push({ $or: queryOrArray });
-
-      } else {
-        query = { $or: queryOrArray };
-      }
+      // WIll refactor this later if ive got time
+      query = { $and: queryAndArray };
+      queryAndArray.push({ $or: queryOrArray });
 
       if (searchQuery) {
         queryOrArray.push({ title: { $regex: searchQuery, $options: "i" } });
@@ -276,48 +206,59 @@ async function main() {
       }
 
       if (filterOptions.difficulty && filterOptions.difficulty !== "None") {
-        if (filterOptions.isBroadMatch) {
-          queryAndArray.push({ difficulty: { $regex: filterOptions.difficulty, $options: "i" } });
-        } else {
-          queryOrArray.push({ difficulty: { $regex: filterOptions.difficulty, $options: "i" } });
-        }
-      }
-
-      // Need to zhng this asap
-      if (filterOptions.orderBy && filterOptions.orderBy !== "None") {
-        if (filterOptions.isBroadMatch) {
-          queryAndArray.push({ orderBy: { $regex: filterOptions.orderBy, $options: "i" } });
-        } else {
-          queryOrArray.push({ orderBy: { $regex: filterOptions.orderBy, $options: "i" } });
-        }
+        queryAndArray.push({ difficulty: { $regex: filterOptions.difficulty, $options: "i" } });
       }
 
       if (filterOptions.selectedCategory && filterOptions.selectedCategory.length !== 0) {
         if (filterOptions.isBroadMatch) {
-          queryAndArray.push({ category: { $in: filterOptions.selectedCategory } });
+          queryAndArray.push({ category: { $all: filterOptions.selectedCategory } });
         } else {
-          queryOrArray.push({ category: { $in: filterOptions.selectedCategory } });
+          queryAndArray.push({ category: { $in: filterOptions.selectedCategory } });
         }
       }
 
       if (filterOptions.selectedPainPoints && filterOptions.selectedPainPoints.length !== 0) {
         if (filterOptions.isBroadMatch) {
-          queryAndArray.push({ painpoints: { $in: filterOptions.selectedPainPoints } });
+          queryAndArray.push({ painpoints: { $all: filterOptions.selectedPainPoints } });
         } else {
-          queryOrArray.push({ painpoints: { $in: filterOptions.selectedPainPoints } });
+          queryAndArray.push({ painpoints: { $in: filterOptions.selectedPainPoints } });
         }
       }
     }
 
     console.log(util.inspect(query, { showHidden: false, depth: null, colors: true }));
 
+
+
+    // Need to zhng this asap
+    if (filterOptions.orderBy && filterOptions.orderBy !== "None") {
+      if (filterOptions.orderBy === "Ascending") {
+        return mongoUtil
+          .getDB()
+          .collection(TECHNIQUES)
+          .find(query, {})
+          .sort({ duration: 1 })
+          .toArray();
+      } else {
+        return mongoUtil
+          .getDB()
+          .collection(TECHNIQUES)
+          .find(query, {})
+          .sort({ duration: -1 })
+          .toArray();
+      }
+    } else {
+      return mongoUtil
+          .getDB()
+          .collection(TECHNIQUES)
+          .find(query, {})
+          .toArray();
+    }
+
     // Need to place await in front of buildTechniqueQuery you pepeg
-    return mongoUtil
-      .getDB()
-      .collection(TECHNIQUES)
-      .find(query, {})
-      .toArray();
+
   }
+
 
   // Generic get request to retrieve technique from DB
   app.get("/techniques", async function (req, res) {
@@ -494,41 +435,11 @@ async function main() {
     if (error) throw new mongoErrors(error, 400);
 
     let query = await buildTechniqueQuery(queryPayload, true);
-    // console.log("----------query----------");
     // console.log(query);
+    // console.log("-----------------------");
+
     responseMessage(200, res, query);
   });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  //  -------------------------------------------- COMMENTS --------------------------------------------
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -640,44 +551,6 @@ async function main() {
 
     responseMessage(200, res, req.params);
   })
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
   app.delete("/technique/:id", async function (req, res) {

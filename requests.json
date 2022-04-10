@@ -11,14 +11,34 @@
     "topic_technique": null,
     "wellbeing_pain_pt": null
   },
-
   {
     "benefits": "testinga sldkfjalskdjflaksjflkjsalkdfjlaskjdflkjaslkdfjlaksjdf",
     "name": "Cycling",
     "category": "exercising",
     "instructions": "go to punggol park connector and ride for 30 mins everyday"
   },
+  {
+    "title": "Basics of Meditation",
+    "summary": "lorem ipsum",
+    "description": "Longeer description goes here",
+    "image": "https:something here",
+    "techniqueList": []
+  },
 
-  
- 
+  {
+    "_original": { "email": "asdfasdf" },
+    "details": [
+      {
+        "message": "\"email\" with value \"asdfasdf\" fails to match the required pattern: /^(([^<>()[\\]\\\\.,;:\\s@\"]+(\\.[^<>()[\\]\\\\.,;:\\s@\"]+)*)|(\".+\"))@((\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\])|(([a-zA-Z\\-0-9]+\\.)+[a-zA-Z]{2,}))$/",
+        "path": ["email"],
+        "type": "string.pattern.base",
+        "context": {
+          "regex": {},
+          "value": "asdfasdf",
+          "label": "email",
+          "key": "email"
+        }
+      }
+    ]
+  }
 ]
