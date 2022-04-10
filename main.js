@@ -80,7 +80,6 @@ async function main() {
     const { error } = emailSchema.validate(req.params);
 
     if (error) {
-      console.log("wtf");
       next(new mongoErrors(error.details[0].message, 400));
 
     } else {
@@ -226,10 +225,6 @@ async function main() {
       }
     }
 
-    console.log(util.inspect(query, { showHidden: false, depth: null, colors: true }));
-
-
-
     // Need to zhng this asap
     if (filterOptions.orderBy && filterOptions.orderBy !== "None") {
       if (filterOptions.orderBy === "Ascending") {
@@ -278,8 +273,6 @@ async function main() {
     let techniqueInfo = await mongoUtil.getDB().collection(TECHNIQUES).findOne({
       _id: mongodb.ObjectId(req.params.id)
     }, {});
-
-    console.log(expressSession.user_email);
 
     responseMessage(200, res, {
       techniqueInfo: techniqueInfo,
@@ -428,15 +421,10 @@ async function main() {
       filterOptions: JSON.parse(req.params.filterOptions)
     }
 
-    console.log(queryPayload);
-    console.log("-----------------------");
-
     const { error } = techniqueSearchSchema.validate(queryPayload);
     if (error) throw new mongoErrors(error, 400);
 
     let query = await buildTechniqueQuery(queryPayload, true);
-    // console.log(query);
-    // console.log("-----------------------");
 
     responseMessage(200, res, query);
   });
@@ -479,7 +467,6 @@ async function main() {
           comments: objectId
         }
       })
-    console.log("checkpoint 3");
 
     responseMessage(200, res, {
       ...req.body,
@@ -490,9 +477,6 @@ async function main() {
 
 
   app.put("/comment/:id", async function (req, res) {
-
-    console.log(req.body);
-    console.log("-----------------------------------------------------------------------");
 
     const commentSchema = joi
       .object({
@@ -523,7 +507,6 @@ async function main() {
 
 
   app.delete("/technique/:technique_id/comment/:comment_id", async function (req, res) {
-    console.log(req.params.technique_id, req.params.comment_id);
     const techniqueSchema = joi
       .object({
         technique_id: joi.string().length(24).required(),
@@ -591,7 +574,6 @@ async function main() {
     let { firstName, lastName, email, username, password, profileImage } =
       req.body;
 
-    console.log("testing");
     // signup post request validation
     const userSchema = joi
       .object({
