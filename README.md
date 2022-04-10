@@ -28,7 +28,7 @@
 * [bcrypt](https://www.npmjs.com/package/bcryptjs)
       * Optimized bcrypt in JavaScript with zero dependencies.
 
-* express-session
+* [express-session](https://www.npmjs.com/package/express-session)
       * Create a session middleware with the given options.   
 
 
